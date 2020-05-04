@@ -4,7 +4,7 @@ import autobind from "autobind-decorator";
 import * as React from "react";
 import {View, Image, StyleSheet, Dimensions, ActivityIndicator} from "react-native";
 import {H1, Text, Button, Radio, ListItem, Right, Content, Container, Item, Input, Left, Body, Header, Icon, Title} from "native-base";
-import {BaseContainer, Images, Styles, Firebase, CreditCard} from "../components";
+import {Conekta, BaseContainer, Images, Styles, Firebase, CreditCard} from "../components";
 import type {ScreenProps} from "../components/Types";
 import Modal from 'react-native-modalbox';
 import variables from "../../native-base-theme/variables/commonColor";
@@ -40,7 +40,6 @@ export default class Tarjetas extends React.Component {
       await docRef.get().then(function(doc) {
           if (doc.exists) {
               docExists = true;
-              console.log("Doc exists!!  data:", doc.data());
               tarjetas = doc.data().tarjetas;
           } else {
               console.log("No such document!");
@@ -80,6 +79,16 @@ export default class Tarjetas extends React.Component {
       tarjetas[index].usando = true;
       this.props.store.last4CreditCard = tarjetas[index].last4;
 
+      // conekta cambiar a default payment source
+      //       conekta.Customer.find('cus_2gJHRkVXdMeoezZnA', function(err, customer) {
+      // 	var srcId = customer.toObject().payment_sources.data[0].id;
+      // 	customer.update({
+      // 		default_payment_source_id: srcId
+      // 	}, function(err, customer) {
+      // 		console.log(customer.toObject());
+      // 	});
+      // });
+
       this.setState({tarjetas: tarjetas});
     }
 
@@ -117,6 +126,8 @@ export default class Tarjetas extends React.Component {
       this.props.dismissTarjetasModal(last4);
       //this.setState({isOpen: false});
     }
+
+    //var creditCard =
 
     render(): React.Node {
         return <Modal style={[style.modal]} isOpen={this.props.isTarjetasOpen} animationDuration={400} swipeToClose={false} coverScreen={true} backdropPressToClose={false} position={"center"} ref={"modal2"}>

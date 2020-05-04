@@ -24,18 +24,19 @@ type QuantityInputProps = ThemeProps & {
 @observer
 class QuantityInput extends React.Component<QuantityInputProps> {
 
-    @observable quantity: number = 1;
-    @observable incrementAmount: number = 1;
+    @observable quantity: number = this.props.defaultQuantity;
+    @observable incrementAmount: number = this.props.defaultIncrement;
+    @observable singleBotellaPrice: number = this.props.singleBotellaPrice;
 
     @autobind @action increment() {
       this.quantity += this.incrementAmount;
-      this.props.totalPriceChange(this.incrementAmount * Constants.PRECIO_BOTELLA);
+      this.props.totalPriceChange(this.incrementAmount * this.singleBotellaPrice, this.props.flavor);
     //  this.props.totalPrice += this.quantity * 20;
     }
 
     @autobind @action decrement() {
       this.quantity -= this.incrementAmount;
-      this.props.totalPriceChange(- this.incrementAmount * Constants.PRECIO_BOTELLA);
+      this.props.totalPriceChange(- this.incrementAmount * this.singleBotellaPrice, this.props.flavor);
     }
 
     render(): React.Node {

@@ -4,7 +4,7 @@ import autobind from "autobind-decorator";
 import {View, Dimensions, Image, StyleSheet, ActivityIndicator, Alert} from "react-native";
 import {Text, Icon, Left, Right, Header, Container, Content, Button, Body, Title} from "native-base";
 
-import {BaseContainer, Images, Field, SingleChoice, PedidoItem, Firebase, Controller, Tarjetas, Address} from "../components";
+import {BaseContainer, Conekta, Images, Field, SingleChoice, PedidoItem, Firebase, Controller, Tarjetas, Address} from "../components";
 import type {ScreenProps} from "../components/Types";
 import Modal from 'react-native-modalbox';
 import { observer, inject } from "mobx-react/native";
@@ -12,12 +12,9 @@ import {action} from "mobx";
 import variables from "../../native-base-theme/variables/commonColor";
 import Pedidos from "../pedidos";
 import Moment from "moment";
-import Conekta from "react-native-conekta";
+//import Conekta from "react-native-conekta";
 import localization from "moment/locale/es";
-
-//import 'moment/min/moment-with-locales';
 import * as Constants from "../Constants";
-//
 
 @inject('store') @observer
 export default class CheckoutConfirmation extends React.Component<ScreenProps<>> {
@@ -29,26 +26,44 @@ export default class CheckoutConfirmation extends React.Component<ScreenProps<>>
       last4: "",
       direccionCompleta: "",
       isAddressModalOpen: false,
+      isConfirmationPopUpOpen: false,
+      direccionObject: this.props.direccionObject,
     }
 
     componentDidMount() {
-      console.log("hey watags ", this.props.isCheckoutOpen);
       this.setState({isOpen: this.props.isCheckoutOpen});
       this.setState({direccionCompleta: this.props.direccionCompleta});
-    //  this.setState({last4: this.props.store.last4CreditCard});
-      //this.setState({last4: this.props.lastFour});
-    }
-
-    componentWillMount() {
-    }
-    componentWillUnmount() {
-      console.log("unmounting checkout");
+      this.setState({direccionObject: this.props.direccionObject});
+      this.updateCustomerId();
     }
 
     @autobind
     open() {
-      //this.setState({isOpen: true});
+      this.updateSaboresQuantity();
       this.props.onOpenChange(true);
+    }
+
+    @autobind @action
+    async updateCustomerId(): Promise<void> {
+      var user = Firebase.auth.currentUser;
+
+      const docRef = await Firebase.firestore.collection("usersInfo").doc(user.uid);
+      var docExists = false;
+      var conektaCustomerId = undefined;
+      await docRef.get().then(function(doc) {
+          if (doc.exists) {
+              docExists = true;
+              console.log("hey, it exists!! ");
+              conektaCustomerId = doc.data().conektaCustomerId;
+
+          } else {
+              console.log("No such document!");
+          }
+      }).catch(function(error) {
+          console.log("Error getting document:", error);
+      });
+
+      this.props.store.conektaCustomerId = conektaCustomerId;
     }
 
     @autobind @action
@@ -56,48 +71,206 @@ export default class CheckoutConfirmation extends React.Component<ScreenProps<>>
       this.setState({loading: true});
       Moment.locale('en');
       var date = Moment().format("dddd, D MMMM YYYY, h:mma");
-      //var date = new Date().toDateString();
       var user = Firebase.auth.currentUser;
 
       var pedidoId = "O-";
       pedidoId += Math.floor(Math.random() * 300000);
       pedidoId += user.uid;
 
+      console.log("estas son las cantidades: ", this.props.cantidades);
+      console.log("Sabores: ", this.props.sabores);
       var pedido = {
           pedido_id: pedidoId,
           reclamado: false,
           fecha: date,
-          cantidades: [this.props.cocoaQuantity],
-          sabores: ["COCOA"],
+          cantidades: this.props.cantidades,
+          sabores: this.props.sabores,
           precio_total: this.props.totalPrice,
           user_id: user.uid,
           subscription: this.props.subscription,
+          subscriptionStatus: "ACTIVA",
           domicilio: this.props.domicilio,
           direccionCompleta: this.state.direccionCompleta,
       };
 
-      var conektaApi = new Conekta();
-      console.log("conektaApi 1st: ", conektaApi);
-      conektaApi.setPublicKey('key_KoqjzW5XMEVcwxdqHsCFY4Q');
-      console.log("conektaApi: ", conektaApi);
-      conektaApi.createToken({
-        cardNumber: '4242424242424242',
-        name: 'Manolo Virolo',
-        cvc: '111',
-        expMonth: '11',
-        expYear: '21',
-      }, function(data){
-        console.log( 'Conekta DATA SUCCESS:', data ); // data.id to get the Token ID
-      }, function(e){
-        console.log( 'Conekta Error!', e);
-      });
+      // var conektaApi = new Conekta();
+      // conektaApi.setPublicKey('key_KoqjzW5XMEVcwxdqHsCFY4Q');
+      if (this.props.store.conektaCustomerId == undefined) {
+        console.log("tiene que esperar un ratin");
+        await this.updateCustomerId();
+        if (this.props.store.conektaCustomerId == undefined) {
+          this.setState({loading: false});
+          Alert.alert("Hubo un error con tu información de pago.", "Favor de agregar una tarjeta nueva.");
+          return;
+        }
+      }
+
+      console.log("hey, here's the conektaCustomerId: ", this.props.store.conektaCustomerId)
+      const customerInfo = {'customer_id': this.props.store.conektaCustomerId, 'corporate': this.props.store.esRep};
+
+      if (this.props.subscription) {
+        console.log("creating subscription with customerId: ", this.props.store.conektaCustomerId);
+        const id = "plan" + this.props.store.subscriptions.length + "_" + user.uid;
+        const name = "Plan mensual #" + this.props.store.subscriptions.length + " del usuario " + user.uid;
+        const amount = this.props.totalPrice * 100; // conekta trabaja con centavos.
+        const currency = "MXN";
+        const interval = "month";
+        const customerId = this.props.store.conektaCustomerId;
+
+        try {
+          let response = await fetch('https://d88zd3d2ok.execute-api.us-east-1.amazonaws.com/production/createSubscription', {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              id: id,
+              name: name,
+              amount: amount,
+              currency: currency,
+              interval: interval,
+              customerId: customerId,
+            }),
+          });
+          let responseJSON = await response.json();
+          console.log("responseJSON is: ", responseJSON);
+
+          if (responseJSON.message != "Subscription creation successful") {
+            this.setState({loading: false});
+            //Alert.alert("Hubo un error al crear tu subscripción.", responseJSON.message);
+            return;
+          }
+
+          await Firebase.firestore.collection("usersInfo").doc(user.uid).update({activeSubscription: pedidoId})
+          .then(function() {
+              console.log("Subscripcion ACTIVADA en FIREBASE");
+          })
+          .catch(function(error) {
+              console.error("Error updating document: ", error);
+              //Alert.alert("No se pudo pausar tu subscripción automáticamente en este momento.", "Por favor mandar un email a soporte@onefood.com.mx para pausarla.");
+          });
+
+          this.props.store.subscriptionStatus = "ACTIVA";
 
 
-      this.props.store.pedidos.push(pedido);
-      //console.log("DAMN ", this.props.store.pedidos);
-      //Pedidos.pedidos.push(pedido);
-    //  this.props.pedidoHecho(pedido);
-      //storeSingleton.pedidos.push(pedido);
+          console.log("created subscription and deleting ", this.props.userActiveSubscription);
+          // pause subscription (firebase) at this.props.userActiveSubscription
+          if (this.props.userActiveSubscription != undefined && this.props.userActiveSubscription.length > 1) {
+            await Firebase.firestore.collection("pedidos").doc(this.props.userActiveSubscription).delete()
+            .then(function() {
+                console.log("Subscripcion BORRADA en FIREBASE");
+            })
+            .catch(function(error) {
+                console.error("Error updating document: ", error);
+                //Alert.alert("No se pudo pausar tu subscripción automáticamente en este momento.", "Por favor mandar un email a soporte@onefood.com.mx para pausarla.");
+            });
+            this.props.store.subscriptions = this.props.store.subscriptions.filter(pedido => pedido.pedido_id != this.props.userActiveSubscription);
+          }
+
+        } catch (error) {
+          console.error(error);
+          this.setState({loading: false});
+          Alert.alert("Hubo un error al crear tu subscripción.", error.message);
+          return;
+        }
+
+
+      } else {
+
+        var lineItems = []
+
+        for (var i = 0; i < this.props.cantidades.length; i++) {
+          var isSnack = this.props.sabores[i].split(' ')[1] == "SNACK"
+          console.log("ES SNACK? ", this.props.sabores[i], isSnack);
+          var unit_price = isSnack ? Constants.PRECIO_SNACK : Constants.PRECIO_BOTELLA;
+          unit_price *= 100;
+          var item = {"name": this.props.sabores[i],
+                      "unit_price": unit_price,
+                      "quantity": this.props.cantidades[i]}
+          lineItems.push(item)
+        }
+
+        console.log("ALL LINE ITEMS: ", lineItems);
+
+        const discountLines =  [];//[{"code": "Cupón de descuento",
+                                //"type": "loyalty",
+                                //"amount": 600}]; // type can be loyalty, campaign, coupon, sign
+        const liveMode = false;
+        console.log("TIENE DIRECCION OBJECT?? " , this.props.direccionObject);
+        console.log("TIENE segundo ?? " , this.state.direccionObject);
+        if (this.props.direccionObject && !this.state.direccionObject) {
+          console.log("entro");
+          this.setState({direccionObject: this.props.direccionObject});
+        }
+        console.log("despues ?? " , this.state.direccionObject);
+
+
+        var shippingContact = {};
+        if (this.props.direccionObject) {
+          shippingContact = {address: {
+              street1: this.props.direccionObject.street1,
+              street2: this.props.direccionObject.street2,
+              city: this.props.direccionObject.city,
+              state: this.props.direccionObject.state,
+              country: this.props.direccionObject.country,
+              postal_code: this.props.direccionObject.postal_code
+          }};
+        }
+
+        if (!this.props.domicilio) {
+          shippingContact = {address: {
+              street1: "El usuario lo recoge",
+              city: "Ciudad de Mexico",
+              state: "Ciudad de Mexico",
+              country: "mx",
+              postal_code: "78215"
+          }};
+        }
+
+        const metadata = {"nota": ""};
+        console.log("creating order with customerId: ", this.props.store.conektaCustomerId);
+        try {
+          let response = await fetch('https://d88zd3d2ok.execute-api.us-east-1.amazonaws.com/production/createOrder', {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              customerInfo: customerInfo,
+              lineItems: lineItems,
+              discountLines: discountLines,
+              shippingContact: shippingContact,
+              metadata: metadata,
+              type: 'singleOrder',
+              domicilio: this.props.domicilio,
+            }),
+          });
+          let responseJSON = await response.json();
+          console.log("responseJSON is: ", responseJSON);
+
+          if (responseJSON.message != "Order made succesfully") {
+            this.setState({loading: false});
+            Alert.alert("Hubo un error al crear tu pedido.", responseJSON.message);
+            return;
+          }
+        } catch (error) {
+          console.error(error);
+          this.setState({loading: false});
+          Alert.alert("Hubo un error al hacer tu pedido.", error.message);
+          return;
+        }
+      }
+
+      if (this.props.subscription) {
+        console.log("DOING IT HEREEE");
+        this.props.store.subscriptionStatus = "ACTIVA";
+        this.props.store.subscriptions.push(pedido);
+      } else {
+        console.log("ON THE OTHER ONE");
+        this.props.store.pedidos.push(pedido);
+      }
 
       await Firebase.firestore.collection("pedidos").doc(pedidoId).set(pedido)
       .then(function() {
@@ -105,13 +278,29 @@ export default class CheckoutConfirmation extends React.Component<ScreenProps<>>
       })
       .catch(function(error) {
           console.error("Error adding document: ", error);
-          Alert.alert("No se pudo completar la compra en este momento.","Por favor intentar en unos minutos.");
+          Alert.alert("No se pudo completar la compra en este momento.", "Por favor contactarnos.");
+          return;
       });
 
       this.setState({loading: false});
+
+      this.refs.popUpModal.open();
+
+    }
+
+    @autobind
+    onPopUpClosed() {
+      console.log("HEY here boi")
       this.props.madeFinalPurchase();
       this.dismissModal();
     }
+
+    // @autobind
+    // onConfirmationOkClick() {
+    //
+    //   //this.setState({isConfirmationPopUpOpen: false});
+    //
+    // }
 
     @autobind
     dismissModal() {
@@ -126,14 +315,13 @@ export default class CheckoutConfirmation extends React.Component<ScreenProps<>>
     }
 
     @autobind
-    dismissAddressModal(last4, finished, direccionCompleta) {
-      console.log("Aqui chinoo, ", last4, finished);
+    dismissAddressModal(last4, finished, direccionCompleta, direccionObject) {
 
       this.setState({isAddressModalOpen: false});
 
       if (finished) {
         // means they actually wanted to change it.
-        this.setState({direccionCompleta: direccionCompleta});
+        this.setState({direccionCompleta: direccionCompleta, direccionObject: direccionObject});
         //setTimeout(() => {this.setState({isCheckoutOpen: true});}, 410);
       } else {
         // means they cancelled the change and address stays the same.
@@ -161,11 +349,15 @@ export default class CheckoutConfirmation extends React.Component<ScreenProps<>>
         }
       }
 
-
       Moment.updateLocale('es', localization);
       var fechaMin = Moment().add(5, 'days').format("dddd, D MMMM");
       var fechaMax = Moment().add(11, 'days').format("dddd, D MMMM");
       var descExtraDias = "\nEntrega en 5 a 11 días: entre " + fechaMin + " y " + fechaMax + ".";
+
+      let mensajePopUp = "Encuentra alguno de nuestros representantes en el mapa y enséñales el código QR de tu pedido. Puedes ver tus pedidos al continuar."
+      if (this.props.domicilio) {
+        mensajePopUp = "Tu pedido se entregará entre " + fechaMin + " y " + fechaMax + "."
+      }
 
       return  <Modal style={[style.modal]} isOpen={this.props.isCheckoutOpen} animationDuration={400} swipeToClose={false} coverScreen={true} position={"center"} ref={"modal2"}>
               <Container safe={true}>
@@ -183,15 +375,17 @@ export default class CheckoutConfirmation extends React.Component<ScreenProps<>>
                 <Content style={style.content}>
                   <View style={style.section}>
                       <Text style={style.sectionTitle}>RESUMEN</Text>
+                      {this.props.sabores.map((sabor, index) => (
+                        <PedidoItem
+                            numero={this.props.cantidades[index].toString()}
+                            title={sabor}
+                            key={index}
+                        />
+                      ))}
                       <PedidoItem
-                          numero={this.props.cocoaQuantity.toString()}
-                          title="COCOA"
+                          numero={"$" + this.props.totalPrice.toString()}
+                          title={"TOTAL"}
                       />
-                      <PedidoItem
-                          numero={discountedPrice}
-                          title="TOTAL"
-                      />
-                      <ActivityIndicator size="large" animating={this.state.loading}/>
                   </View>
 
                   <View style={style.section}>
@@ -225,13 +419,33 @@ export default class CheckoutConfirmation extends React.Component<ScreenProps<>>
 
                 </Content>
                 <Button primary block onPress={this.makePurchase} style={{ height: variables.footerHeight * 1.3 }}>
-                  <Text style={{color: 'white'}}>COMPRAR</Text>
+                  <ActivityIndicator size="small" color="white" style={{left: -30, marginRight: 5, position: "relative"}} animating={this.state.loading} />
+                  <Text style={{color: 'white', left: -5}}>COMPRAR</Text>
                 </Button>
               </Container>
+
               <Address isOpen={this.state.isAddressModalOpen} dismissModal={this.dismissAddressModal}> </Address>
+              <Modal style={style.popUpModal} swipeToClose={true} position={"center"} onClosed={this.onPopUpClosed} backdrop={true} coverScreen={false} ref={"popUpModal"}>
+                  <Container style={style.containerChico}>
+                    <Text style={{fontSize: 22, fontWeight: "bold"}}>¡Pago confirmado!</Text>
+                    <View style={{marginTop: 20, margin: 15, alignItems: "center", justifyContent: "center", flex: 1, flexDirection: 'column',}}>
+                      <Text>
+                       {mensajePopUp}
+                      </Text>
+                      <View style={{marginTop: 15}}>
+                      <Button style={{borderRadius: 5, width: 120, alignItems: "center", justifyContent: "center"}} onPress={() => this.refs.popUpModal.close()}><Text style={{color: "white"}}>OK</Text></Button>
+                      </View>
+                    </View>
+                  </Container>
+               </Modal>
       </Modal>;
     }
 }
+
+
+
+
+
 // <PedidoItem
 //     numero={totalPriceDisplay}
 //     title="SUBTOTAL"
@@ -251,6 +465,20 @@ const style = StyleSheet.create({
       marginBottom: 10,
       fontWeight: 'bold',
       color: variables.darkGray
+    },
+    popUpModal: {
+      position: 'absolute',
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: variables.brandInfo,
+      height: 270,
+      width: 270,
+      borderRadius: 5,
+    },
+    containerChico: {
+      justifyContent: 'center',
+      alignItems: 'center',
+      height: 270,
     },
     add: {
         backgroundColor: "white",

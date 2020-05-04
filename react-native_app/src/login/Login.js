@@ -28,6 +28,7 @@ type LoginState = {
   shouldAvoidKeyboard: boolean,
 }
 
+// Nota: este es el Signup.
 export default class Login extends React.Component<ScreenProps<>, LoginState> {
 
     password: TextInput;
@@ -142,7 +143,7 @@ export default class Login extends React.Component<ScreenProps<>, LoginState> {
 
       try {
         this.setState({loading: true});
-        await Firebase.auth.createUserWithEmailAndPassword(this.state.email, this.state.password);
+        await Firebase.auth.createUserWithEmailAndPassword(this.state.email.trim(), this.state.password.trim());
         var user = Firebase.auth.currentUser;
         await user.updateProfile({
           displayName: this.state.name
@@ -203,7 +204,6 @@ export default class Login extends React.Component<ScreenProps<>, LoginState> {
       await docRef.get().then(function(doc) {
           if (doc.exists) {
               docExists = true;
-              console.log("Doc exists!!  data:", doc.data());
               descuento = doc.data().descuento;
               var descuentoDisplay = descuento * 100 + "%";
               Alert.alert("Código Válido", "Un descuento de " + descuentoDisplay + " será aplicado a tu próxima compra");
@@ -298,7 +298,7 @@ export default class Login extends React.Component<ScreenProps<>, LoginState> {
                                     </View>
                                     <View>
                                         <Button transparent full onPress={this.signUp}>
-                                            <Text style={{color: variables.lightGray, fontSize: 16}}>{"Ya tienes cuenta? Log In"}</Text>
+                                            <Text style={{color: variables.darkGray, fontSize: 16}}>{"Ya tienes cuenta? Log In"}</Text>
                                         </Button>
                                     </View>
                                 </View>
